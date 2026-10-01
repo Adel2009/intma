@@ -1,9 +1,9 @@
 /*!
  * ويدجت إمكانية الوصول — بهوية أمانة منطقة الرياض
- * الإصدار 1.1.0 (نسخة مُراجعة: دعم اللمس والجوال، حفظ الإعدادات، إصلاحات توافق)
+ * الإصدار 1.3.0 (فترة تشغيل بتاريخ بداية ونهاية، أوضاع تباين قياسية وفق WCAG 2.2، دعم اللمس والجوال، حفظ الإعدادات)
  *
  * التثبيت: أضف هذا السطر قبل إغلاق </body>
- * <script src="https://cdn.jsdelivr.net/gh/USER/REPO@v1.1.0/accessibility-widget.min.js" defer></script>
+ * <script src="https://cdn.jsdelivr.net/gh/USER/REPO@1/accessibility-widget.min.js" defer></script>
  *
  * خيارات اختيارية على وسم السكريبت:
  * data-position="bottom-right" | "bottom-left"  (افتراضي: bottom-left)
@@ -14,6 +14,30 @@
  */
 !(function () {
   "use strict";
+
+  /* ================== فترة التشغيل (عدّل هنا فقط) ==================
+   * الصيغة: "YYYY-MM-DDTHH:MM:SS+03:00"  (‎+03:00 = توقيت الرياض)
+   * اترك القيمة فارغة "" لإلغاء الحد (بدون تاريخ بداية أو بدون تاريخ نهاية).
+   * قبل تاريخ البداية وبعد تاريخ النهاية لا يظهر الويدجت ولا يُطبَّق أي إعداد على الصفحة.
+   * ================================================================= */
+  var SCHEDULE = {
+    start: "2026-10-01T00:00:00+03:00",
+    end: "2027-09-30T23:59:59+03:00",
+  };
+
+  function inSchedule() {
+    var now = Date.now(), st = SCHEDULE.start ? Date.parse(SCHEDULE.start) : -Infinity,
+      en = SCHEDULE.end ? Date.parse(SCHEDULE.end) : Infinity;
+    if (isNaN(st) || isNaN(en)) {
+      console.error("[a11y-widget] صيغة التاريخ في SCHEDULE غير صحيحة؛ لن يعمل الويدجت.");
+      return !1;
+    }
+    if (now < st) { console.info("[a11y-widget] لم يبدأ التشغيل بعد: " + SCHEDULE.start); return !1; }
+    if (now > en) { console.info("[a11y-widget] انتهت فترة التشغيل: " + SCHEDULE.end); return !1; }
+    return !0;
+  }
+  if (!inSchedule()) return;
+
   if (window.__a11yWidgetLoaded) return; // منع التحميل المزدوج
   window.__a11yWidgetLoaded = true;
 
@@ -471,10 +495,59 @@
   }
   function speechOff() { "speechSynthesis" in window && window.speechSynthesis.cancel(); }
 
+
+  /* ---------- أوضاع التباين (وفق WCAG 2.2 ومفهوم Windows High Contrast / forced-colors) ----------
+   * لا نستخدم عكس الألوان (invert)؛ كل وضع يعيد تلوين النصوص والخلفيات بلوحة ثابتة مُتحقَّق منها:
+   *  - تباين عالي (hc):  أسود/أبيض بأقصى تباين 21:1، الروابط أصفر 19.6:1 — مثل وضع Windows "High Contrast Black"
+   *  - تباين داكن (dark): خلفية رمادية داكنة #121212 ونص فاتح 15.5:1، روابط 8.9:1 — مستوى AAA بإرهاق أقل للعين
+   *  - تباين فاتح (light): خلفية بيضاء ونص داكن 17.4:1، روابط 8.5:1 — مستوى AAA
+   * جميع ألوان النصوص ≥ 7:1 (WCAG 1.4.6 AAA)، وحدود العناصر ومؤشر التركيز ≥ 3:1 (WCAG 1.4.11 و 2.4.13).
+   * الصور والفيديو تبقى بألوانها الأصلية. */
+  var THEMES = {
+    hc: { key: "highContrast", bg: "#000000", surface: "#000000", text: "#FFFFFF", heading: "#FFFFFF",
+      link: "#FFFF00", visited: "#FFB3FF", focus: "#FFFF00", border: "#FFFFFF", placeholder: "#D0D0D0",
+      disabled: "#3FF23F", selBg: "#1AEBFF", selText: "#000000", borderW: "2px" },
+    dark: { key: "darkMode", bg: "#121212", surface: "#1E1E1E", text: "#E8EAED", heading: "#FFFFFF",
+      link: "#8AB4F8", visited: "#D7AEFB", focus: "#FDD663", border: "#9AA0A6", placeholder: "#B0B0B0",
+      disabled: "#9AA0A6", selBg: "#8AB4F8", selText: "#000000", borderW: "1px" },
+    light: { key: "lightMode", bg: "#FFFFFF", surface: "#F5F5F5", text: "#1A1A1A", heading: "#000000",
+      link: "#0645AD", visited: "#5A2D91", focus: "#0B57D0", border: "#5F6368", placeholder: "#595959",
+      disabled: "#5F6368", selBg: "#0B57D0", selText: "#FFFFFF", borderW: "1px" },
+  };
+  function currentTheme() {
+    for (var k in THEMES) if (u[THEMES[k].key]) return k;
+    return null;
+  }
+  function themeCSS() {
+    var k = currentTheme();
+    if (!k) return "";
+    var c = THEMES[k], R = "html.a11y-theme-" + k,
+      // عناصر الويدجت نفسها (دليل القراءة، العدسة، طبقة التركيز) تُستثنى حتى لا تُغطّى بلون صلب
+      // :where() يجعل وزن هذا المحدد منخفضًا حتى تتغلب عليه قواعد العناوين والروابط والحقول أدناه
+      ALL = R + " :where(body, body *):not(:where(img, video, picture, canvas, iframe, svg, svg *, #a11y-reading-guide, #a11y-focus, #a11y-lens))",
+      CTRL = R + " button, " + R + " input, " + R + " select, " + R + " textarea, " + R + " [role=button]";
+    return (
+      ALL + "{background-color:" + c.bg + " !important;color:" + c.text + " !important;border-color:" + c.border +
+        " !important;text-shadow:none !important;background-image:none !important;}" +
+      R + " h1," + R + " h2," + R + " h3," + R + " h4," + R + " h5," + R + " h6{color:" + c.heading + " !important;}" +
+      R + " a:link, " + R + " a:link *{color:" + c.link + " !important;text-decoration:underline !important;}" +
+      R + " a:visited, " + R + " a:visited *{color:" + c.visited + " !important;}" +
+      CTRL + "{background-color:" + c.surface + " !important;color:" + c.text + " !important;border:" + c.borderW +
+        " solid " + c.border + " !important;}" +
+      R + " ::placeholder{color:" + c.placeholder + " !important;opacity:1 !important;}" +
+      R + " :disabled, " + R + " [aria-disabled=true]{color:" + c.disabled + " !important;border-color:" + c.disabled + " !important;}" +
+      R + " *:focus-visible{outline:3px solid " + c.focus + " !important;outline-offset:2px !important;}" +
+      R + " ::selection{background:" + c.selBg + " !important;color:" + c.selText + " !important;}" +
+      // أيقونات SVG التي ترث لون النص تتبع لوحة الوضع تلقائيًا
+      R + " svg{color:inherit;}" +
+      R + "{color-scheme:" + (k === "light" ? "light" : "dark") + " !important;}"
+    );
+  }
+
   /* ---------- تطبيق الأنماط على الصفحة ---------- */
   var NOT_ICONS = ":not(i):not([class*='icon']):not([class*='fa-']):not([class^='fa']):not(.material-icons):not(.material-symbols-outlined)";
   function m() {
-    var e, a = "";
+    var e, a = themeCSS(); // أوضاع التباين أولًا حتى تبقى ميزات مثل "تسليط الضوء على الروابط" ظاهرة فوقها
     u.dyslexia &&
       (a +=
         "@font-face{font-family:'OpenDyslexic';src:url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Regular.woff') format('woff');font-display:swap;}" +
@@ -483,7 +556,7 @@
     u.letterSpacing && (a += "body *{letter-spacing:.09em !important;word-spacing:.16em !important;}");
     u.lineHeight && (a += "body *{line-height:2 !important;}");
     u.highlightLinks &&
-      (a += "a{background:#FFF176 !important;color:#111 !important;text-decoration:underline !important;}");
+      (a += ":root body a:any-link, :root body a:any-link *{background:#FFF176 !important;color:#111 !important;text-decoration:underline !important;}");
     u.highlightHeadings &&
       (a += "h1,h2,h3,h4,h5,h6,[role=heading]{outline:3px solid " + t.color + " !important;outline-offset:3px;background:rgba(27,131,84,.07) !important;}");
     u.hideImages &&
@@ -499,18 +572,6 @@
         ") 4 4, auto !important;}");
     u.profileMotor &&
       (a += "*:focus{outline:3px solid " + t.accent + " !important;outline-offset:2px !important;}");
-    u.highContrast &&
-      (a +=
-        "html.a11y-hc body, html.a11y-hc body *:not(img):not(video):not(svg):not(svg *){background-color:#000 !important;color:#fff !important;border-color:#fff !important;}" +
-        "html.a11y-hc a, html.a11y-hc a *{color:#FFD84D !important;}" +
-        "html.a11y-hc button, html.a11y-hc input, html.a11y-hc select, html.a11y-hc textarea{border:1px solid #fff !important;}");
-    u.lightMode &&
-      (a += "html.a11y-light body, html.a11y-light body *:not(img):not(video):not(svg):not(svg *){background-color:#fff !important;color:#111 !important;}" +
-        "html.a11y-light a{color:#0B4A9E !important;}");
-    // الوضع الداكن: نعكس الصفحة ثم نعيد عكس الصور والفيديو والويدجت لتظهر بألوانها الطبيعية
-    u.darkMode &&
-      (a += "img,video,picture,iframe:not(#a11yWidgetFrame),[style*='background-image']{filter:invert(1) hue-rotate(180deg) !important;}" +
-        "#a11yWidgetFrame{filter:invert(1) hue-rotate(180deg) !important;}");
     // إخفاء شريط Google Translate العلوي
     a += "body{top:0 !important;} .goog-te-banner-frame,.skiptranslate>iframe{display:none !important;} .goog-tooltip, .goog-tooltip:hover{display:none !important;} .goog-text-highlight{background:none !important;box-shadow:none !important;}";
 
@@ -522,15 +583,14 @@
 
     (f || ((f = document.createElement("style")), (f.id = "a11y-injected-styles"), document.head.appendChild(f)),
       (f.textContent = a));
-    p.classList.toggle("a11y-hc", !!u.highContrast);
-    p.classList.toggle("a11y-light", !!u.lightMode);
+    var th = currentTheme();
+    for (var tk in THEMES) p.classList.toggle("a11y-theme-" + tk, th === tk);
     p.classList.toggle("a11y-dyslexia", !!u.dyslexia);
 
     var o = [];
     u.grayscale && o.push("grayscale(1)");
     u.saturateHigh && o.push("saturate(1.7)");
     u.saturateLow && o.push("saturate(.45)");
-    u.darkMode && o.push("invert(1) hue-rotate(180deg) brightness(.92)");
     p.style.filter = o.length ? o.join(" ") : "";
     save();
   }
